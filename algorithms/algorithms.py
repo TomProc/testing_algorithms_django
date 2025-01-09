@@ -100,69 +100,85 @@ def jellyfish_search(objective_function, dimensions, lower_boundary, upper_bound
     return best_solution, best_fitness
 
 
-def artificial_bee_colony(objective_function, lower_boundary, upper_boundary, dimensions, population_size, max_iterations, limit=10):
-    dimensions = int(dimensions)
-    population_size = int(population_size)
-    max_iterations = int(max_iterations)
+def artificial_bee_colony(objective_function, dimensions, lower_boundary, upper_boundary, population_size, max_iterations):
+    solutions = np.random.uniform(lower_boundary, upper_boundary, (population_size, dimensions))
+    values = np.full(population_size, np.inf)
+    best_solution = None
+    best_value = np.inf
+    limit = 0.5 * max_iterations
 
-    population = np.random.uniform(lower_boundary, upper_boundary, (population_size, dimensions))
-    fitness = np.array([
-        1 / (1 + objective_function(solution)) if objective_function(solution) >= 0
-        else 1 + abs(objective_function(solution))
-        for solution in population
-    ])
-    best_solution = population[np.argmax(fitness)]
-    best_fitness = objective_function(best_solution)
-    failures = np.zeros(population_size, dtype=int)
+    def initialize():
+        nonlocal solutions, values, best_value
+        solutions = np.random.uniform(lower_boundary, upper_boundary, (population_size, dimensions))
+        values = np.array([np.inf] * population_size)
+        best_value = np.inf
 
-    def generate_new_solution(index):
-        dimension = random.randint(0, dimensions - 1)
-        neighbor = random.randint(0, population_size - 1)
-        while neighbor == index:
-            neighbor = random.randint(0, population_size - 1)
+    def remember_best_solution():
+        nonlocal best_solution, best_value
+        best_index = np.argmin(values)
+        if values[best_index] < best_value:
+            best_value = values[best_index]
+            best_solution = solutions[best_index]
 
-        new_solution = population[index].copy()
-        diff = new_solution[dimension] - population[neighbor][dimension]
-        new_solution[dimension] += (random.random() - 0.5) * 2 * diff
-        new_solution = np.clip(new_solution, lower_boundary, upper_boundary)
-
-        new_fitness = (
-            1 / (1 + objective_function(new_solution))
-            if objective_function(new_solution) >= 0
-            else 1 + abs(objective_function(new_solution))
-        )
-        if new_fitness > fitness[index]:
-            population[index] = new_solution
-            fitness[index] = new_fitness
-            failures[index] = 0
-        else:
-            failures[index] += 1
-
-    for iteration in range(max_iterations):
+    def employed_bees_phase():
         for i in range(population_size):
-            generate_new_solution(i)
+            k = random.choice([j for j in range(population_size) if j != i])
+            phi = np.random.uniform(-1, 1, dimensions)
+            candidate = solutions[i] + phi * (solutions[i] - solutions[k])
+            candidate = np.clip(candidate, lower_boundary, upper_boundary)
 
-        probabilities = fitness / fitness.sum()
+            candidate_value = objective_function(candidate)
+            if candidate_value < values[i]:
+                solutions[i] = candidate
+                values[i] = candidate_value
+                iterations_without_improvement[i] = 0
+            else:
+                iterations_without_improvement[i] += 1
+
+    def onlooker_bees_phase():
+        fitness = 1 / (1 + values)
+        probabilities = fitness / np.sum(fitness)
+
+        for _ in range(population_size):
+            i = np.random.choice(range(population_size), p=probabilities)
+            k = random.choice([j for j in range(population_size) if j != i])
+            phi = np.random.uniform(-1, 1, dimensions)
+            candidate = solutions[i] + phi * (solutions[i] - solutions[k])
+            candidate = np.clip(candidate, lower_boundary, upper_boundary)
+
+            candidate_value = objective_function(candidate)
+            if candidate_value < values[i]:
+                solutions[i] = candidate
+                values[i] = candidate_value
+                iterations_without_improvement[i] = 0
+            else:
+                iterations_without_improvement[i] += 1
+
+    def scout_bees_phase():
         for i in range(population_size):
-            if random.random() < probabilities[i]:
-                generate_new_solution(i)
+            if iterations_without_improvement[i] > limit:
+                solutions[i] = np.random.uniform(lower_boundary, upper_boundary, dimensions)
+                values[i] = objective_function(solutions[i])
+                iterations_without_improvement[i] = 0
 
-        for i in range(population_size):
-            if failures[i] > limit:
-                population[i] = np.random.uniform(lower_boundary, upper_boundary, dimensions)
-                fitness[i] = (
-                    1 / (1 + objective_function(population[i]))
-                    if objective_function(population[i]) >= 0
-                    else 1 + abs(objective_function(population[i]))
-                )
-                failures[i] = 0
+    initialize()
+    values = np.array([objective_function(solutions[i]) for i in range(population_size)])
+    remember_best_solution()
 
-        current_best = population[np.argmax(fitness)]
-        current_fitness = objective_function(current_best)
-        if current_fitness < best_fitness:
-            best_solution = current_best
-            best_fitness = current_fitness
+    iterations_without_improvement = np.zeros(population_size)
 
-    return best_solution, best_fitness
+    for _ in range(max_iterations):
+        employed_bees_phase()
+        remember_best_solution()
+
+        onlooker_bees_phase()
+        remember_best_solution()
+
+        scout_bees_phase()
+        remember_best_solution()
+
+    return best_solution, best_value
+
+
 
 
